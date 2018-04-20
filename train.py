@@ -16,8 +16,9 @@ class RFnet(nn.HybridBlock):
         self.features = nn.HybridSequential()
         self.output = nn.HybridSequential()
         with self.name_scope():
-            self.features.add(pretrain_model.features)
-            self.output.add(pretrain_model.output)
+            self.features.add(nn.Conv2D(3,3,padding=(1,1)),
+                              pretrain_model.features)
+            self.output.add(nn.Dense(10))
     def crop_features(self, F, x, idx):
         shape = x.shape
         if self.rand_crop:
@@ -43,7 +44,6 @@ def load_data_fashion_mnist(batch_size, resize=None):
     train_data = DataLoader(mnist_train, batch_size, shuffle=True)
     test_data = DataLoader(mnist_test, batch_size, shuffle=False)
     return (train_data, test_data)
-load_data_fashion_mnist(256,28)
 
 def accuracy(output, label):
     return nd.mean(nd.argmax(output, axis=1)==label).asscalar()
@@ -51,7 +51,7 @@ def accuracy(output, label):
 def _get_batch(batch, ctx):
     if isinstance(batch, mx.io.DataBatch):
         data = batch.data[0]
-        lable = batch.label[0]
+        label = batch.label[0]
     else:
         data, label = batch
     return data.as_in_context(ctx), label.as_in_context(ctx)
@@ -77,9 +77,10 @@ def train(train_data, test_data, net, loss, trainer, ctx, lr_decay, num_epochs):
             train_data.reset()
         for i, batch in  enumerate(train_data):
             data, label = _get_batch(batch, ctx)
+
             with autograd.record():
                 output = net(data)
-                L = loss(output, label)
+                L = loss(output, nd.one_hot(label,10))
             L.backward()
             trainer.step(data.shape[0])
             train_loss += nd.mean(L).asscalar()
@@ -93,12 +94,14 @@ def train(train_data, test_data, net, loss, trainer, ctx, lr_decay, num_epochs):
 def get_net(model_name, ctx):
     pretrained = get_pretrained(model_name)
     net = RFnet(pretrained)
+    net.features[0].initialize()
+    net.output.initialize()
     net.collect_params().reset_ctx(ctx)
     net.hybridize()
     return net
 
 def main():
-    batch_size = 256
+    batch_size = 32
     Epoches = 100
     lr = 0.001
     lr_decay = 40
