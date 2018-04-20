@@ -9,9 +9,10 @@ def get_pretrained(model_name):
     return gluon.model_zoo.vision.get_model(model_name,pretrained=True)
 
 class RFnet(nn.HybridBlock):
-    def __init__(self, pretrain_model, rand_crop=True, **kwargs):
+    def __init__(self, pretrain_model, rand_crop=True, is_train=True, **kwargs):
         super(RFnet, self).__init__(**kwargs)
         self.rand_crop = rand_crop
+        self.is_train = is_train
         self.idx = [4,8]
         self.features = nn.HybridSequential()
         self.output = nn.HybridSequential()
@@ -26,10 +27,10 @@ class RFnet(nn.HybridBlock):
             x = F.Crop(x, h_w=(shape[2],shape[3]))
         return x
 
-    def hybrid_forward(self, F, x, *args, **kwargs):
+    def hybrid_forward(self, F, x):
         for i, net in enumerate(self.features):
             x = net(x)
-            if i+1 in self.idx:
+            if i+1 in self.idx and self.is_train:
                 x = self.crop_features(F, x, i+1)
         x = self.output(x)
         return x
@@ -75,6 +76,7 @@ def train(train_data, test_data, net, loss, trainer, ctx, lr_decay, num_epochs):
             trainer.set_learning_rate(lr=trainer.learning_rate*0.1)
         if isinstance(train_data, mx.io.MXDataIter):
             train_data.reset()
+        net.is_train = True
         for i, batch in  enumerate(train_data):
             data, label = _get_batch(batch, ctx)
 
@@ -87,9 +89,9 @@ def train(train_data, test_data, net, loss, trainer, ctx, lr_decay, num_epochs):
             train_acc += accuracy(output, label)
 
             n = i+1
-
+        net.is_train = False
         test_acc = evaluate_accuracy(test_data, net, ctx)
-        print("Epoch %d. Time: %.2f, Loss: %f, Train acc: %f, Test acc: %f."%(epoch, time.time()-start, train_loss/n, test_acc))
+        print("Epoch %d. Time: %.2f, Loss: %f, Train acc: %f, Test acc: %f."%(epoch, time.time()-start, train_loss/n, train_acc/n, test_acc))
 
 def get_net(model_name, ctx):
     pretrained = get_pretrained(model_name)
