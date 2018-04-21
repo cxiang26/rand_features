@@ -13,25 +13,27 @@ class RFnet(nn.HybridBlock):
         super(RFnet, self).__init__(**kwargs)
         self.rand_crop = rand_crop
         self.is_train = is_train
-        self.idx = [4,8]
+        self.idx = [7,26]
+        self.input = nn.HybridSequential()
         self.features = nn.HybridSequential()
         self.output = nn.HybridSequential()
         with self.name_scope():
-            self.features.add(nn.Conv2D(3,3,padding=(1,1)),
-                              pretrain_model.features)
+            self.input.add(nn.Conv2D(3,3,padding=(1,1)))
+            self.features.add(pretrain_model.features)
             self.output.add(nn.Dense(10))
-    def crop_features(self, F, x, idx):
+    def crop_features(self, F, x):
         shape = x.shape
         if self.rand_crop:
-            x = F.pad(x, mode='constant',constant_value=0, pad_width=(0,0,0,0,10-idx,10-idx,10-idx,10-idx))
+            x = F.pad(x, mode='edge', pad_width=(0,0,0,0,10,10,10,10))
             x = F.Crop(x, h_w=(shape[2],shape[3]))
         return x
 
     def hybrid_forward(self, F, x):
-        for i, net in enumerate(self.features):
+        x = self.input(x)
+        for i, net in enumerate(self.features[0]):
             x = net(x)
             if i+1 in self.idx and self.is_train:
-                x = self.crop_features(F, x, i+1)
+                x = self.crop_features(F, x)
         x = self.output(x)
         return x
 
@@ -96,15 +98,15 @@ def train(train_data, test_data, net, loss, trainer, ctx, lr_decay, num_epochs):
 def get_net(model_name, ctx):
     pretrained = get_pretrained(model_name)
     net = RFnet(pretrained)
-    net.features[0].initialize()
+    net.input.initialize()
     net.output.initialize()
     net.collect_params().reset_ctx(ctx)
-    net.hybridize()
+    #net.hybridize()
     return net
 
 def main():
     batch_size = 32
-    Epoches = 100
+    Epoches = 10
     lr = 0.001
     lr_decay = 40
     model_name = 'vgg19_bn'
